@@ -1,7 +1,7 @@
-name: python-defense-starter
+name: adaptive-sentinel-defense
 kind: defense
 api_version: v1
-team: your-team-name
+team: sentinel-defense-team
 port: 8080
 models: []          # declare every external pretrained model: {name, source, license}
 datasets: []        # declare every external dataset: {name, source, license}
@@ -9,4 +9,5 @@ resources:
   memory: 1g
   cpus: 1.0
   gpus: 0
-description: Rule-based example defense. Replace app/decision.py with your method.
+description: Adaptive multi-tier defense featuring recursive bounded normalizer, taint tracking, cross-record corpus matching, and memory write protection.
+

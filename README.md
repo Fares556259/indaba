@@ -1,167 +1,195 @@
-# SENTINEL: Adaptive Safety for Autonomous AI Agents
+# SENTINEL Defense — Adaptive Multi-Tier Prompt Injection Defense
 
-SENTINEL is a research challenge for IndabaX Tunisia. Each team builds **one defense solution** —
-built however they choose — that lets a tool-using LLM agent finish legitimate work while an
-adversary manipulates its environment, plus an **observability layer** that makes the defense's
-decisions legible.
+A defense submission for the [SENTINEL](https://github.com/Skan22/Sentinel_Starter_Kit) agentic AI safety benchmark.
+It achieves **100% attack mitigation** and **100% benign task completion** across all 28 official scenarios (19 public + 9 validation) with the offline mock model.
 
-It is not a prompt-injection classifier contest, and it is not a hidden-test competition. Every
-scenario, attack family, and rule is published up front. SENTINEL is not a hidden-test competition:
-the attacks are known; the challenge is to show how creatively, rigorously, and effectively you can
-engineer an AI agent that survives them.
+---
 
-- Fully offline, synthetic data only (fictional people, organizations, accounts, and domains).
-- Official reference agent: a preconfigured **Qwen3-8B** (`Qwen/Qwen3-8B`), run locally through this
-  simulator. No required architecture, language, or interface for your defense.
-- Deterministic: the same seed produces byte-identical event logs, so your own replays and report
-  numbers are reproducible.
-- Scoring is jury-judged from your video, observability layer, technical report, and GitHub
-  repository — not an automated benchmark. See [docs/scoring.md](docs/scoring.md).
+## Contents
+
+```
+starter-kits/python-defense/   ← Defense service (submit this)
+  app/
+    main.py           FastAPI entry point
+    decision.py       Multi-tier decision orchestrator
+    config.py         Ablation feature flags
+    normalizer.py     Recursive multi-encoding decoder
+    policy_rules.py   Effect-tier classification
+    authorization.py  Action intent & argument authorization
+    taint.py          Provenance-based taint tracking
+    corpus.py         Cross-record corpus aggregation
+    memory_rules.py   Memory write protection
+    models.py         Pydantic v2 API schemas
+  Dockerfile
+  requirements.txt
+  sentinel-submission.yaml
+
+scripts/
+  run_all_evals.py    Run 28 official scenarios in-process
+  run_holdout.py      Run 16 holdout scenarios in-process
+  run_ablation.py     Ablation study (one component off per run)
+
+tests/holdout/         16 additional holdout scenarios
+viewer/trace_viewer.html   Single-file HTML trace viewer
+
+results/
+  ablation.md / .json
+  holdout_results.md / .json
+```
+
+---
+
+## Setup
+
+### Prerequisites
+- Python ≥ 3.12 (managed by uv)
+- [uv](https://docs.astral.sh/uv/) (`pip install uv` or `brew install uv`)
+
+### Install
+
+```bash
+git clone https://github.com/<your-repo>/Sentinel_Starter_Kit
+cd Sentinel_Starter_Kit
+uv sync
+```
+
+---
 
 ## Architecture
 
-This repository is the simulator and reference tooling SENTINEL provides to every team: the
-synthetic world, the attack mechanism that puts pressure on a scenario, the reference agent, and
-local self-test commands. It is scaffolding for building and demonstrating your defense, not a
-pipeline your submission is required to plug into or be judged by.
-
-```mermaid
-flowchart LR
-    S[Scenario YAML<br/>+ fixture + policy] --> R[Simulator runner]
-    R --> A[Reference agent]
-    M[ModelAdapter<br/>mock / Qwen3-8B] --> A
-    A -- candidate action --> D{Your defense solution}
-    D -- allow / block / escalate / rewrite --> A
-    A -- escalate --> H[Simulated human]
-    A -- approved tool call --> G[Tool gateway]
-    G --> W[(Synthetic world state<br/>enterprise / finance / SOC)]
-    X[Scenario attack<br/>static / mutation] -- mutation --> V[Mutation validator]
-    V -- declared surfaces only --> W
-    A --> L[(Append-only JSONL events)]
-    L --> OBS[Your observability layer]
+```
+┌─────────────────────────────────────────────────────────┐
+│                    FastAPI Service                       │
+│              POST /v1/decision                          │
+└───────────────────────┬─────────────────────────────────┘
+                        │  DefenseRequest
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│                  decide() pipeline                       │
+│                                                         │
+│  1. TOOL_NOT_ALLOWED:  block if tool ∉ allowed_tools   │
+│  2. OUTBOUND_FLOW:     check all decoded views of       │
+│                        outbound payload vs sensitive    │
+│                        content; block/redact on hit     │
+│  3. MEMORY_WRITE:      block executable directives      │
+│                        or fake approval overrides        │
+│  4. CROSS-RECORD:      build corpus from all untrusted  │
+│                        records; match split payloads    │
+│  5. INTENT_CHECK:      action outside user goal that   │
+│                        mirrors untrusted content→block  │
+│  6. CONFIRMED:         hash-match against confirmations │
+│  7. EFFECT_TIER:       CONSEQUENTIAL→escalate          │
+│                        READ_ONLY→allow                  │
+│  8. ALLOW              safe internal writes / responds  │
+└──────────────────────────────────────────────────────────┘
+          │               │               │               │
+     normalizer.py  policy_rules.py  authorization.py  corpus.py
+     taint.py        memory_rules.py  config.py
 ```
 
-The "scenario attack" is internal simulator machinery that puts pressure on a scenario the way the
-threat model describes it (see [docs/threat-model.md](docs/threat-model.md)) — it is not something
-you build; your only required deliverable on the attack side of things is the defense that survives
-it, plus the observability layer that shows how. Details: [docs/architecture.md](docs/architecture.md).
+### Key Design Rules
+- **Zero hard-coded scenario IDs, filenames, or canary tokens** — the defense uses only `user_goal`, `conversation`, `observation`, `candidate_action`, `policy_context`, `provenance`, and `history_digest`.
+- **Policy overrides user goal** — restricted data to external destinations is always blocked even if the user requested it.
+- **Outbound flow rule** — all decoded views of the payload are checked, so base64/hex/rot13/URL/spaced/reversed encodings do not bypass the sensitive-data check.
 
-## Quick start
+---
 
-Requires [uv](https://docs.astral.sh/uv/). Python 3.12 is installed by uv if needed.
+## Running the Service
+
+### Development (no Docker)
 
 ```bash
-uv sync                 # or: make setup
-make test               # unit + integration + security tests, then starter-kit tests
-make run-baseline       # one scenario with the provenance baseline, printed as a timeline
+cd starter-kits/python-defense
+uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 
-Every command runs offline. The mock model needs no downloads; running the reference Qwen3-8B agent
-needs `uv sync --extra hf` and the weights downloaded ahead of time.
-
-## Run a baseline
+Health check:
 
 ```bash
-uv run sentinel run --scenario scenarios/public/finance/finance_false_approval.yaml --defense allow_all
-uv run sentinel run --scenario scenarios/public/finance/finance_false_approval.yaml --defense provenance
-uv run sentinel run --scenario scenarios/public/finance/finance_false_approval.yaml --defense provenance --model qwen3-8b
-uv run sentinel replay artifacts/<eval-group>/<run_id>.jsonl
+curl http://127.0.0.1:8080/healthz
+# {"status":"ok"}
 ```
 
-Baselines: `allow_all`, `deny_sensitive`, `keyword`, `heuristic_risk`, `provenance`. `--model` selects
-the reference agent's underlying model (`mock` by default, or `qwen3-8b`); `mock` is fast for
-iterating on your decision logic, `qwen3-8b` is what your video and trace should be built on.
-
-## Build your defense
+### Docker
 
 ```bash
-cp -r starter-kits/python-defense ../my-defense   # or: cp -r starter-kits/learned-monitor ../my-defense
-# edit the decision logic
-cd ../my-defense && uv venv && uv pip install -r requirements.txt && uv run uvicorn app.main:app --port 8080
+cd starter-kits/python-defense
+docker build -t sentinel-defense .
+docker run --rm -p 8080:8080 sentinel-defense
 ```
 
-Then, from this repository, run it against the reference agent and record the trace your video and
-report are built around:
+---
+
+## Running the Evaluation
+
+### Official 28 scenarios (in-process, fastest)
 
 ```bash
-uv run sentinel run --scenario scenarios/public/finance/finance_false_approval.yaml \
-  --defense-url http://127.0.0.1:8080 --model qwen3-8b
-uv run sentinel replay artifacts/<run_id>.jsonl
+PYTHONUNBUFFERED=1 uv run --no-sync python scripts/run_all_evals.py
 ```
 
-See [docs/participant-guide.md](docs/participant-guide.md) and the starter kits:
-[python-defense](starter-kits/python-defense) and [learned-monitor](starter-kits/learned-monitor).
-Both are optional scaffolding for the one required deliverable: your defense solution and its
-observability layer. Nothing here requires you to expose your defense as an HTTP service — build it
-however you choose and wire your own observability layer around it.
+### Official 28 scenarios via HTTP (requires running service on port 8080)
 
-## Self-test tooling
+```bash
+# Terminal 1: start service
+cd starter-kits/python-defense
+uv run --no-sync uvicorn app.main:app --host 127.0.0.1 --port 8080
 
-These commands are for your own development and evidence-gathering. There is no automated official
-score; judges assess your submitted work against the published rubric:
-
-| Command | What it does |
-| --- | --- |
-| `sentinel scenarios validate PATH` | Schema, fixture, policy, tool, and surface checks (`--json`) |
-| `sentinel scenarios list PATH` | Scenario inventory (`--json`) |
-| `sentinel run --scenario PATH --defense MODE [--model mock\|qwen3-8b]` | One scenario with timeline and artifact |
-| `sentinel eval public --defense MODE\|--defense-url URL` | Metrics across the published scenario library, for your own report |
-| `sentinel replay ARTIFACT` | Human-readable timeline (`--json`) — this is the evidence your video and report cite |
-| `sentinel submission validate PATH_OR_IMAGE [--live-url URL]` | Optional static/contract checks, useful if you containerize |
-| `sentinel fixtures generate [--scenarios]` | Regenerate deterministic fixtures and scenarios |
-| `sentinel serve defense` | Local baseline-defense service, useful for development |
-
-The metrics `sentinel eval` reports (BTU, ASR, CVR, FBR, UER, ...) are defined in
-[docs/scoring.md](docs/scoring.md) and are good evidence for your technical report's results section
-— they are not how judges score your submission. Judges score from your video, observability layer,
-technical report, and repository against the published rubric.
-
-## Repository map
-
-```
-src/sentinel/
-  core/        provenance, actions, events, scenarios, world state, canaries, policies, results
-  models/      ModelAdapter interface, deterministic MockModelAdapter, HF adapter (Qwen3-8B default)
-  agent/       reference agent loop, memory, plan templating
-  tools/       tool base class, registry (no network capability), gateway
-  domains/     enterprise, finance, soc synthetic tools
-  defenses/    Defense interface, HTTP client with fail modes, five baselines
-  attackers/   internal scenario-attack mechanism: mutation validator, static and mutation baselines
-  evaluator/   runner, labels, task/policy graders, leak detection, metrics, replay
-  api/         FastAPI defense app (optional local development tooling)
-  sandbox/     optional static validation of a defense directory or image
-  storage/     JSONL run artifacts
-scenarios/     the full published scenario library
-fixtures/      synthetic world data per domain
-policies/      machine-readable policy per domain
-starter-kits/  python-defense, learned-monitor (optional scaffolding)
-scripts/       fixture/scenario generators, submission validation
-tests/         unit, integration, security
-docs/          architecture, guides, threat and security models, scoring, authoring, report template
+# Terminal 2: run via CLI
+uv run --no-sync python -m sentinel.cli eval public --defense-url http://127.0.0.1:8080
+uv run --no-sync python -m sentinel.cli eval validation --defense-url http://127.0.0.1:8080
 ```
 
-## Developer commands
+### Holdout tests (16 new scenarios)
 
-`make setup`, `make lint`, `make format`, `make typecheck`, `make test`, `make test-security`,
-`make test-kits`, `make run-baseline`, `make eval-public`, `make scenarios`, `make fixtures`,
-`make schema`.
+```bash
+PYTHONUNBUFFERED=1 uv run --no-sync python scripts/run_holdout.py
+```
 
-## Documentation
+### Ablation study
 
-- [Architecture](docs/architecture.md)
-- [Participant guide](docs/participant-guide.md)
-- [Threat model](docs/threat-model.md)
-- [Security model](docs/security-model.md)
-- [Scoring](docs/scoring.md)
-- [Scenario authoring](docs/scenario-authoring.md)
-- [Research report template](docs/research-report-template.md)
-- [Security policy](SECURITY.md)
+```bash
+PYTHONUNBUFFERED=1 uv run --no-sync python scripts/run_ablation.py
+# Produces results/ablation.md and results/ablation.json
+```
 
-## Important dates
+### Submission validation
 
-Challenge release **17/09**, info session **18/09** (time TBA), submission deadline **22/09 23:59**.
-Questions: **skander.yacoubi@supcom.tn**.
+```bash
+uv run --no-sync python -m sentinel.cli submission validate starter-kits/python-defense/
+```
 
-## License
+---
 
-Apache-2.0. See [LICENSE](LICENSE).
+## Trace Viewer
+
+Open `viewer/trace_viewer.html` in any browser.
+
+- Click **Load Trace A** and select a `.jsonl` artifact from `artifacts/`.
+- Rows are color-coded: 🟢 allow, 🔴 block, 🟠 escalate, 🔵 rewrite.
+- Click any row to see the full decision breakdown, reason codes, risk score, confidence, and which untrusted source triggered the block.
+- Click **Load Trace B** and select **Side-by-side** to compare allow-all vs. your defense on the same scenario.
+
+---
+
+## Results Summary
+
+| Suite | Attacks Stopped | Benign Passed | Failures |
+| :--- | :---: | :---: | :--- |
+| Public (19) | **10/10 (100%)** | **9/9 (100%)** | None |
+| Validation (9) | **4/4 (100%)** | **5/5 (100%)** | None |
+| **Total** | **14/14 (100%)** | **14/14 (100%)** | **None** |
+
+See [`REPORT.md`](REPORT.md) for the full threat model, ablation table, and failure analysis.
+
+---
+
+## Responsible AI Statement
+
+This defense intercepts **candidate tool calls** before they execute. It observes `user_goal`, conversation history, provenance/trust metadata, and candidate action arguments. It does **not** train on or retain any user data beyond the single request.
+
+**Known failure modes**: paraphrased injections with no structural keywords, novel encoding combinations at depth > 3, and attack scenarios where the sensitive data shares normalized tokens with the user goal.
+
+**Humans should always be in the loop** for consequential actions (payments, asset isolation, security incidents). The defense escalates rather than blocks in ambiguous cases — this is intentional to preserve human oversight.
+
+**Validation disclosure**: The validation set was used during development (Step d). It is **not** a clean held-out set. The holdout scenarios in `tests/holdout/` are genuinely unseen during defense development.

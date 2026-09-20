@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>SENTINEL Trace Viewer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;font-size:13px}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{font-size:16px;font-weight:700;color:#58a6ff}
+.load-btn{background:#21262d;border:1px solid #30363d;color:#e6edf3;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+.load-btn:hover{background:#30363d}
+input[type=file]{display:none}
+.toolbar{background:#161b22;border-bottom:1px solid #30363d;padding:8px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.filter-btn{padding:4px 10px;border-radius:20px;border:1px solid #30363d;background:#21262d;color:#e6edf3;cursor:pointer;font-size:11px}
+.filter-btn.active{background:#1f6feb;border-color:#388bfd}
+.summary-bar{display:flex;gap:12px;align-items:center;margin-left:auto;font-size:12px}
+.badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-allow{background:#1a4b1a;color:#56d364}
+.badge-block{background:#4b1a1a;color:#f85149}
+.badge-escalate{background:#4b3a1a;color:#e3b341}
+.badge-rewrite{background:#1a2f4b;color:#58a6ff}
+.split-view{display:flex;gap:0;height:calc(100vh - 120px);overflow:hidden}
+.pane{flex:1;overflow-y:auto;border-right:1px solid #30363d}
+.pane:last-child{border-right:none}
+.pane-header{position:sticky;top:0;background:#161b22;border-bottom:1px solid #30363d;padding:8px 16px;font-size:12px;font-weight:600;color:#8b949e;display:flex;justify-content:space-between;align-items:center;z-index:10}
+.step-row{border-bottom:1px solid #21262d;padding:8px 16px;cursor:pointer;transition:background .1s}
+.step-row:hover{background:#161b22}
+.step-row.selected{background:#1c2128;border-left:3px solid #58a6ff}
+.step-meta{display:flex;gap:8px;align-items:center;margin-bottom:4px}
+.step-num{color:#8b949e;font-size:11px;width:28px;flex-shrink:0}
+.actor{font-size:11px;font-weight:600;color:#79c0ff}
+.action-str{flex:1;color:#e6edf3;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trust-badge{font-size:10px;padding:1px 6px;border-radius:3px;flex-shrink:0}
+.trust-system{background:#1a3a1a;color:#56d364}
+.trust-user{background:#1a2a4b;color:#58a6ff}
+.trust-untrusted{background:#4b1a1a;color:#f85149}
+.trust-mixed{background:#4b3a1a;color:#e3b341}
+.decision-row{display:flex;align-items:center;gap:6px;font-size:11px}
+.risk-bar{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden}
+.risk-fill{height:100%;border-radius:2px;background:linear-gradient(to right,#56d364,#e3b341,#f85149)}
+.reason-code{font-size:10px;padding:1px 5px;border-radius:3px;background:#21262d;color:#8b949e}
+.detail-panel{width:340px;border-left:1px solid #30363d;background:#0d1117;overflow-y:auto;flex-shrink:0}
+.detail-panel.hidden{display:none}
+.detail-section{padding:12px 16px;border-bottom:1px solid #21262d}
+.detail-section h3{font-size:11px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.detail-field{margin-bottom:6px}
+.detail-label{font-size:10px;color:#8b949e;margin-bottom:2px}
+.detail-value{font-size:12px;color:#e6edf3;word-break:break-all}
+.source-item{margin-bottom:6px;padding:6px;background:#161b22;border-radius:4px;border-left:3px solid #30363d}
+.source-item.untrusted{border-left-color:#f85149}
+.source-item.trusted{border-left-color:#56d364}
+pre{font-size:11px;color:#e6edf3;white-space:pre-wrap;word-break:break-all;background:#161b22;padding:8px;border-radius:4px;max-height:200px;overflow-y:auto}
+.empty-state{padding:48px 16px;text-align:center;color:#8b949e}
+.loading{color:#8b949e;padding:24px 16px;text-align:center}
+select{background:#21262d;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:11px}
+.decide-allow{color:#56d364;font-weight:700}
+.decide-block{color:#f85149;font-weight:700}
+.decide-escalate{color:#e3b341;font-weight:700}
+.decide-rewrite{color:#58a6ff;font-weight:700}
+.conf-bar{display:inline-block;width:40px;height:4px;background:#21262d;border-radius:2px;vertical-align:middle;margin-left:4px;overflow:hidden}
+.conf-fill{height:100%;background:#388bfd;border-radius:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 SENTINEL Trace Viewer</h1>
+  <label class="load-btn" id="loadA-label">📂 Load Trace A<input type="file" id="fileA" accept=".jsonl"></label>
+  <label class="load-btn" id="loadB-label">📂 Load Trace B (compare)<input type="file" id="fileB" accept=".jsonl"></label>
+  <button class="load-btn" id="clearBtn">✕ Clear</button>
+  <select id="layoutSel">
+    <option value="single">Single pane</option>
+    <option value="split">Side-by-side</option>
+  </select>
+</header>
+<div class="toolbar" id="toolbar">
+  <span style="color:#8b949e;font-size:11px">Filter:</span>
+  <button class="filter-btn active" data-filter="all">All</button>
+  <button class="filter-btn" data-filter="allow">Allow</button>
+  <button class="filter-btn" data-filter="block">Block</button>
+  <button class="filter-btn" data-filter="escalate">Escalate</button>
+  <button class="filter-btn" data-filter="rewrite">Rewrite</button>
+  <div class="summary-bar" id="summaryBar"></div>
+</div>
+<div class="split-view" id="splitView">
+  <div class="pane" id="paneA">
+    <div class="pane-header"><span id="labelA">Trace A</span></div>
+    <div id="rowsA" class="empty-state">Load a .jsonl trace file to begin</div>
+  </div>
+  <div class="pane hidden" id="paneB">
+    <div class="pane-header"><span id="labelB">Trace B</span></div>
+    <div id="rowsB" class="empty-state">Load Trace B for comparison</div>
+  </div>
+  <div class="detail-panel hidden" id="detailPanel">
+    <div class="pane-header">
+      <span>Detail</span>
+      <button class="load-btn" id="closeDetail" style="padding:2px 8px">✕</button>
+    </div>
+    <div id="detailContent"></div>
+  </div>
+</div>
+
+<script>
+const state = { filterDecision: 'all', eventsA: [], eventsB: [], selectedStep: null, layout: 'single' };
+
+function parseJSONL(text) {
+  return text.trim().split('\n').map(line => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+}
+
+function getDecision(ev) {
+  return ev?.defense_decision?.decision || ev?.decision || null;
+}
+
+function getTrust(ev) {
+  const obs = ev?.observation;
+  const provs = obs?.provenance_ids || [];
+  const provMap = {};
+  (ev?.provenance || []).forEach(p => { provMap[p.id] = p.provenance?.trust_level || ''; });
+  const levels = provs.map(id => provMap[id]).filter(Boolean);
+  if (!levels.length) return 'system';
+  if (levels.every(l => l.includes('untrusted') || l === 'adversary_controlled')) return 'untrusted';
+  if (levels.some(l => l.includes('untrusted') || l === 'adversary_controlled')) return 'mixed';
+  return 'trusted';
+}
+
+function trustClass(trust) {
+  return { system: 'trust-system', trusted: 'trust-trusted', untrusted: 'trust-untrusted', mixed: 'trust-mixed' }[trust] || 'trust-system';
+}
+
+function decideClass(d) {
+  return { allow: 'decide-allow', block: 'decide-block', escalate: 'decide-escalate', rewrite: 'decide-rewrite' }[d] || '';
+}
+
+function actionLabel(ev) {
+  const a = ev?.candidate_action || ev?.action || {};
+  if (!a || typeof a !== 'object') return '[event]';
+  if (a.type === 'tool_call') return `${a.tool}(${Object.entries(a.arguments||{}).slice(0,2).map(([k,v])=>k+'='+v).join(', ')})`;
+  if (a.type === 'memory_write') return `memory_write(${(a.content||'').slice(0,40)}...)`;
+  if (a.type === 'request_confirmation') return `request_confirmation`;
+  if (a.type === 'respond') return `respond(${(a.content||'').slice(0,40)})`;
+  return a.type || '[event]';
+}
+
+function actorLabel(ev) {
+  return ev?.role || ev?.actor || ev?.source || 'agent';
+}
+
+function summaryFromEvents(events) {
+  const counts = { allow: 0, block: 0, escalate: 0, rewrite: 0, other: 0 };
+  events.forEach(ev => {
+    const d = getDecision(ev);
+    if (d && counts[d] !== undefined) counts[d]++;
+    else counts.other++;
+  });
+  return counts;
+}
+
+function renderSummaryBar(eventsA, eventsB) {
+  const bar = document.getElementById('summaryBar');
+  const counts = summaryFromEvents(eventsA.concat(eventsB));
+  bar.innerHTML = [
+    ['allow', 'badge-allow'],
+    ['block', 'badge-block'],
+    ['escalate', 'badge-escalate'],
+    ['rewrite', 'badge-rewrite'],
+  ].filter(([k]) => counts[k] > 0).map(([k, cls]) =>
+    `<span class="badge ${cls}">${k}: ${counts[k]}</span>`
+  ).join('');
+}
+
+function renderRows(events, containerId, paneLabel) {
+  const container = document.getElementById(containerId);
+  if (!events.length) {
+    container.innerHTML = '<div class="empty-state">No matching events</div>';
+    return;
+  }
+  let stepNum = 0;
+  container.innerHTML = '';
+  events.forEach((ev, idx) => {
+    const decision = getDecision(ev);
+    if (state.filterDecision !== 'all' && decision !== state.filterDecision) return;
+    stepNum++;
+    const trust = getTrust(ev);
+    const riskScore = ev?.defense_decision?.risk_score ?? ev?.risk_score ?? null;
+    const confidence = ev?.defense_decision?.confidence ?? ev?.confidence ?? null;
+    const reasonCodes = ev?.defense_decision?.reason_codes ?? ev?.reason_codes ?? [];
+    const explanation = ev?.defense_decision?.explanation ?? ev?.explanation ?? '';
+
+    const row = document.createElement('div');
+    row.className = 'step-row';
+    row.dataset.idx = idx;
+    row.dataset.pane = containerId;
+
+    const riskPct = riskScore !== null ? Math.round(riskScore * 100) : 0;
+    const confPct = confidence !== null ? Math.round(confidence * 100) : 0;
+
+    row.innerHTML = `
+      <div class="step-meta">
+        <span class="step-num">#${stepNum}</span>
+        <span class="actor">${actorLabel(ev)}</span>
+        <span class="action-str">${actionLabel(ev)}</span>
+        <span class="trust-badge ${trustClass(trust)}">${trust}</span>
+        ${decision ? `<span class="badge badge-${decision}">${decision}</span>` : ''}
+      </div>
+      <div class="decision-row">
+        <span style="color:#8b949e;width:48px">risk</span>
+        <div class="risk-bar"><div class="risk-fill" style="width:${riskPct}%"></div></div>
+        <span style="color:#8b949e;width:32px;text-align:right">${riskPct}%</span>
+        <span style="color:#8b949e;margin-left:8px">conf</span>
+        <span class="conf-bar"><span class="conf-fill" style="width:${confPct}%"></span></span>
+        <span style="color:#8b949e;margin-left:4px">${confPct}%</span>
+        ${reasonCodes.slice(0,3).map(r=>`<span class="reason-code">${r}</span>`).join('')}
+      </div>
+      ${explanation ? `<div style="color:#8b949e;font-size:11px;margin-top:3px;padding-left:28px">${explanation}</div>` : ''}
+    `;
+
+    row.addEventListener('click', () => showDetail(ev, row, containerId));
+    container.appendChild(row);
+  });
+}
+
+function showDetail(ev, rowEl, paneId) {
+  // deselect old
+  document.querySelectorAll('.step-row.selected').forEach(r => r.classList.remove('selected'));
+  rowEl.classList.add('selected');
+
+  const panel = document.getElementById('detailPanel');
+  panel.classList.remove('hidden');
+  const content = document.getElementById('detailContent');
+
+  const dec = ev?.defense_decision || {};
+  const action = ev?.candidate_action || ev?.action || {};
+  const provMap = {};
+  (ev?.provenance || []).forEach(p => { provMap[p.id] = p.provenance || {}; });
+  const obsProvsIds = ev?.observation?.provenance_ids || [];
+  const convItems = ev?.conversation || [];
+
+  // Find untrusted sources
+  const untrustedSources = [];
+  const trustedSources = [];
+  [...obsProvsIds, ...convItems.flatMap(c => c.provenance_ids || [])].forEach(pid => {
+    const prov = provMap[pid];
+    if (!prov) return;
+    const item = { id: pid, ...prov };
+    if (prov.trust_level?.includes('untrusted') || prov.trust_level === 'adversary_controlled') {
+      untrustedSources.push(item);
+    } else {
+      trustedSources.push(item);
+    }
+  });
+
+  content.innerHTML = `
+    <div class="detail-section">
+      <h3>Decision</h3>
+      <div class="detail-field"><div class="detail-label">verdict</div><div class="detail-value ${decideClass(dec.decision)}">${dec.decision || 'N/A'}</div></div>
+      <div class="detail-field"><div class="detail-label">risk score</div><div class="detail-value">${dec.risk_score?.toFixed(3) ?? 'N/A'}</div></div>
+      <div class="detail-field"><div class="detail-label">confidence</div><div class="detail-value">${dec.confidence?.toFixed(3) ?? 'N/A'}</div></div>
+      <div class="detail-field"><div class="detail-label">reason codes</div><div class="detail-value">${(dec.reason_codes||[]).map(r=>`<span class="reason-code" style="margin-right:3px">${r}</span>`).join('')}</div></div>
+      <div class="detail-field"><div class="detail-label">explanation</div><div class="detail-value" style="color:#8b949e">${dec.explanation||'—'}</div></div>
+    </div>
+    <div class="detail-section">
+      <h3>Candidate Action</h3>
+      <pre>${JSON.stringify(action, null, 2)}</pre>
+    </div>
+    <div class="detail-section">
+      <h3>User Goal</h3>
+      <div class="detail-value" style="color:#e6edf3;font-size:12px">${ev?.user_goal || '—'}</div>
+    </div>
+    <div class="detail-section">
+      <h3>Untrusted Sources (${untrustedSources.length})</h3>
+      ${untrustedSources.length === 0
+        ? '<div style="color:#8b949e;font-size:11px">None</div>'
+        : untrustedSources.map(s => `
+        <div class="source-item untrusted">
+          <div style="font-size:10px;color:#f85149">${s.id} — ${s.trust_level||''}</div>
+          <div style="font-size:11px;color:#8b949e">${s.source_type||''}: ${s.source_id||''}</div>
+          <div style="font-size:11px;color:#8b949e">via ${s.retrieved_via||''} · ${s.sensitivity||''}</div>
+        </div>`).join('')}
+    </div>
+    <div class="detail-section">
+      <h3>Trusted Sources (${trustedSources.length})</h3>
+      ${trustedSources.length === 0
+        ? '<div style="color:#8b949e;font-size:11px">None</div>'
+        : trustedSources.map(s => `
+        <div class="source-item trusted">
+          <div style="font-size:10px;color:#56d364">${s.id} — ${s.trust_level||''}</div>
+          <div style="font-size:11px;color:#8b949e">${s.source_type||''}: ${s.source_id||''}</div>
+        </div>`).join('')}
+    </div>
+    ${ev?.outcome ? `<div class="detail-section"><h3>Outcome</h3><pre>${JSON.stringify(ev.outcome, null, 2)}</pre></div>` : ''}
+  `;
+}
+
+function renderAll() {
+  renderRows(state.eventsA, 'rowsA', 'A');
+  if (state.eventsB.length) renderRows(state.eventsB, 'rowsB', 'B');
+  renderSummaryBar(state.eventsA, state.eventsB);
+}
+
+// Filter buttons
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.filterDecision = btn.dataset.filter;
+    renderAll();
+  });
+});
+
+// File loaders
+function loadFile(fileInput, eventsKey, rowsId, labelId) {
+  fileInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    document.getElementById(labelId).textContent = file.name;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      state[eventsKey] = parseJSONL(ev.target.result);
+      renderAll();
+      if (eventsKey === 'eventsB' && state.layout === 'split') {
+        document.getElementById('paneB').classList.remove('hidden');
+      }
+    };
+    reader.readAsText(file);
+  });
+}
+
+loadFile(document.getElementById('fileA'), 'eventsA', 'rowsA', 'labelA');
+loadFile(document.getElementById('fileB'), 'eventsB', 'rowsB', 'labelB');
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  state.eventsA = []; state.eventsB = [];
+  document.getElementById('rowsA').innerHTML = '<div class="empty-state">Load a .jsonl trace file to begin</div>';
+  document.getElementById('rowsB').innerHTML = '<div class="empty-state">Load Trace B for comparison</div>';
+  document.getElementById('labelA').textContent = 'Trace A';
+  document.getElementById('labelB').textContent = 'Trace B';
+  document.getElementById('detailPanel').classList.add('hidden');
+  renderSummaryBar([], []);
+});
+
+document.getElementById('closeDetail').addEventListener('click', () => {
+  document.getElementById('detailPanel').classList.add('hidden');
+  document.querySelectorAll('.step-row.selected').forEach(r => r.classList.remove('selected'));
+});
+
+document.getElementById('layoutSel').addEventListener('change', e => {
+  state.layout = e.target.value;
+  if (state.layout === 'split') {
+    if (state.eventsB.length) document.getElementById('paneB').classList.remove('hidden');
+  } else {
+    document.getElementById('paneB').classList.add('hidden');
+  }
+});
+</script>
+</body>
+</html>
