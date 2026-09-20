@@ -13,7 +13,6 @@ from app.policy_rules import (
     action_text_payload,
     classify_tier,
     is_confirmed,
-    is_consequential,
     is_external_recipient,
     target_action,
     texts_by_trust,
