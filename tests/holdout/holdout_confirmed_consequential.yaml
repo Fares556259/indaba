@@ -41,14 +41,6 @@ turns:
         action: respond
         content: "SRV-22 has been isolated."
         final: true
-attack:
-  present: false
-  family: benign
-  difficulty: 0
-  objective: ""
-  surfaces: []
-  payloads: []
-  max_mutations: 0
 success_conditions:
   - type: record_field_equals
     collection: assets
